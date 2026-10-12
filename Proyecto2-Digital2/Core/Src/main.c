@@ -38,7 +38,7 @@
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
 
-#define ESP32_I2C_ADDR (0x28U << 1)
+#define ESP32_I2C_ADDR (0x28U << 1) //Dirección del ESP32 pero desplazada un bit a la izquierda 
 
 /* USER CODE END PD */
 
@@ -97,9 +97,11 @@ static void medirPotenciometro(void);
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
 
-// Comunicacion con el I2C
+// Comunicación con el I2C
 static void enviarTexto(const char *texto){
   HAL_UART_Transmit(&huart2, (uint8_t *)texto, (uint16_t)strlen(texto), 100);
+  	  //*texto = puntero, dónde empieza el texto
+  	  //strlen mide cuántos caracteres tiene 
 }
 
 static void medirPotenciometro(void){
@@ -108,9 +110,8 @@ static void medirPotenciometro(void){
   uint16_t lectura;
   char mensaje[80];
 
-
   /* Solicitar una nueva medicion al ESP32. */
-  if (HAL_I2C_Master_Transmit(&hi2c1, ESP32_I2C_ADDR, &comando, 1, 100) != HAL_OK){
+  if (HAL_I2C_Master_Transmit(&hi2c1, ESP32_I2C_ADDR, &comando, 1, 100) != HAL_OK){ //Nucleo manda M y si no está bien = error
     enviarTexto("\r\nError: el ESP32 no recibio la solicitud I2C.\r\n");
     return;
   }
@@ -118,18 +119,20 @@ static void medirPotenciometro(void){
   /* Esperar a que el ESP32 lo lea y de la respuesta  */
   HAL_Delay(20);
 
-  if (HAL_I2C_Master_Receive(&hi2c1, ESP32_I2C_ADDR, respuesta, 2, 100) != HAL_OK)  {
+  if (HAL_I2C_Master_Receive(&hi2c1, ESP32_I2C_ADDR, respuesta, 2, 100) != HAL_OK)  { //Pide 2 bytes y los guarda en respuesta
     enviarTexto("\r\nError: no se recibio la medicion I2C.\r\n");
     return;
   }
 
-  lectura = ((uint16_t)respuesta[0] << 8) | respuesta[1];
+  lectura = ((uint16_t)respuesta[0] << 8) | respuesta[1]; //Une 2 bytes en un solo número 
 
+  //Seguridad, no más de 4095
   if (lectura > 4095U)  {
     enviarTexto("\r\nError: medicion fuera del rango del ADC.\r\n");
     return;
   }
 
+  //Armar texto
   snprintf(mensaje,
            sizeof(mensaje),
            "\r\nPot1: %u (ADC 0-4095); valor LCD: %u (0-255)\r\n",
@@ -204,20 +207,20 @@ int main(void)
 
 			  // Validar
 			  bool valido = false;
-			  char *t1 = strtok(buffer, ",");
-			  char *t2 = strtok(NULL, ",");
-			  if (t1 && t2 && esNumero(t1) && esNumero(t2)) {
+			  char *t1 = strtok(buffer, ","); //STRTOK corta en pedazos
+			  char *t2 = strtok(NULL, ","); //NULL = mismo texto
+			  if (t1 && t2 && esNumero(t1) && esNumero(t2)) { //¿Existen ambos pedazos? ¿Ambos son números?
 			      led = atol(t1);
 			      ms  = atol(t2);
-			      valido = (led >= 1 && led <= 3 && ms > 0 && ms <= 65535);
+			      valido = (led >= 1 && led <= 3 && ms > 0 && ms <= 65535); //Valor de tiempo entre 0 y 65535 (max de 2 bytes)
 			  }
 
 			  if (valido) {
 			  //[LED, ms_alto, ms_bajo, 0]
 			      txSPI[0] = (uint8_t)led;
-			      txSPI[1] = (uint8_t)(ms >> 8);
-			      txSPI[2] = (uint8_t)(ms & 0xFF);
-			      txSPI[3] = 0;
+			      txSPI[1] = (uint8_t)(ms >> 8); //alto
+			      txSPI[2] = (uint8_t)(ms & 0xFF); //bajo
+			      txSPI[3] = 0; //relleno
 
 			      HAL_GPIO_WritePin(ESP32_CS_GPIO_Port, ESP32_CS_Pin, GPIO_PIN_RESET);
 			      HAL_SPI_TransmitReceive(&hspi1, txSPI, rxSPI, 4, 1000);
@@ -225,9 +228,9 @@ int main(void)
 
 			   //Generar señal cuadrada
 			      HAL_TIM_Base_Stop_IT(&htim6);
-			      __HAL_TIM_SET_AUTORELOAD(&htim6, ms-1);
-			      __HAL_TIM_SET_COUNTER(&htim6, 0);
-			      HAL_TIM_GenerateEvent(&htim6, TIM_EVENTSOURCE_UPDATE);
+			      __HAL_TIM_SET_AUTORELOAD(&htim6, ms-1); //Da 1000 pulsos por segundo 
+			      __HAL_TIM_SET_COUNTER(&htim6, 0); //Reinicia cuenta en 0
+			      HAL_TIM_GenerateEvent(&htim6, TIM_EVENTSOURCE_UPDATE); //Carga nuevo valor y borra alarma
 			      __HAL_TIM_CLEAR_FLAG(&htim6, TIM_FLAG_UPDATE);
 			      HAL_GPIO_WritePin(LEDnucleo_GPIO_Port, LEDnucleo_Pin, GPIO_PIN_RESET);
 			      HAL_TIM_Base_Start_IT(&htim6);
@@ -502,20 +505,21 @@ static void MX_GPIO_Init(void)
 
 /* USER CODE BEGIN 4 */
 
+//Lee texto que recive carácter por carácter
 uint8_t leerLinea(char *buf, uint8_t max) {
-    uint8_t c, idx = 0;
+    uint8_t c, idx = 0; //c=carácter que acaba de llegar, idx=cuántos caracteres llevamos
     uint8_t crlf[] = "\r\n";
 
     while (1) {
         // Espera hasta 1s por el siguiente carácter
-        HAL_StatusTypeDef st = HAL_UART_Receive(&huart2, &c, 1, 1000);
+        HAL_StatusTypeDef st = HAL_UART_Receive(&huart2, &c, 1, 1000); //¿Llegó algo? ¿Se acabó el tiempo?
 
         if (st == HAL_OK) {
             if (c == '\r' || c == '\n') {
                 if (idx > 0) break;      // terminó con Enter
                 continue;                // ignora Enter sobrante
             }
-            HAL_UART_Transmit(&huart2, &c, 1, 100);   // eco
+            HAL_UART_Transmit(&huart2, &c, 1, 100); //eco: caracter normal -> manda a la terminal
             if (idx < max - 1) buf[idx++] = c;
         }
         else {
@@ -524,12 +528,13 @@ uint8_t leerLinea(char *buf, uint8_t max) {
         }
     }
 
-    buf[idx] = '\0';
+    buf[idx] = '\0'; //Final del texto
     HAL_UART_Transmit(&huart2, crlf, 2, 100);
     return idx;
 }
 
-bool esNumero(const char *s) {
+//Revisar que sean dígitos
+bool esNumero(const char *s) { 
     if (*s == '\0') return false;
     while (*s) { if (!isdigit((unsigned char)*s)) return false; s++; }
     return true;
