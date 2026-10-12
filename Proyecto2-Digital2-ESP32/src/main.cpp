@@ -64,7 +64,7 @@ const char iniciaLED[4] = {'-','G','Y','R'};
 char ultimoLED = '-';
 
 //I2C
-const uint8_t direccionI2C = 0x28;
+const uint8_t direccionI2C = 0x28; //Dirección de del ESP32 en el bus I2C
 volatile bool medicionPendiente = false; //Conexión al nucleo
 volatile uint16_t lecturaNucleo = 0;
 unsigned long ultimaActualizacion = 0;
@@ -84,7 +84,7 @@ void setup() {
   digitalWrite(ledVerde, LOW);
   digitalWrite(ledRojo, LOW);
 
-  slave.setDataMode(SPI_MODE0);
+  slave.setDataMode(SPI_MODE0); //Regla del ritmo para leer bits - polaridad baja y primer flanco
   slave.setQueueSize(QUEUE_SIZE);
   slave.begin(VSPI); //CS:5, CLK:18, MOSI:23, MISO:19
   Serial.println("Esclavo SPI listo");
@@ -105,8 +105,8 @@ void setup() {
   Wire.onReceive(recibirI2C);
   Wire.onRequest(enviarI2C);
 
-  if(!Wire.begin(direccionI2C, sdaI2C, sclI2C, 100000)){
-    Serial.println("Error al iniciar I2C");
+  if(!Wire.begin(direccionI2C, sdaI2C, sclI2C, 100000)){ //Enciende I2C como esclavo con 0x28
+    Serial.println("Error al iniciar I2C"); //If, no salió bien = imprimir error
   }
   else{
     Serial.println("ESP32 I2C listo");
@@ -117,15 +117,17 @@ void setup() {
 // Loop Principal
 //******************************************/
 void loop() {
+  //¿No hay nada pendiente?
   if(slave.hasTransactionsCompletedAndAllResultsHandled()){
     slave.queue(txBuff, rxBuff, 4);
     slave.trigger();
   }
+  //¿Ya terminó de enviar un mensaje completo?
   if(slave.hasTransactionsCompletedAndAllResultsReady(QUEUE_SIZE)){
     slave.numBytesReceivedAll();
 
-    uint8_t led = rxBuff[0];
-    uint16_t ms = (rxBuff[1] << 8) | rxBuff[2];
+    uint8_t led = rxBuff[0]; //LED
+    uint16_t ms = (rxBuff[1] << 8) | rxBuff[2]; //TIEMPO, viaja en 2 bytes
     Serial.printf("Recibido: %d %d %d %d\n", rxBuff[0], rxBuff[1], rxBuff[2], rxBuff[3]);
 
     if (led >= 1 && led <= 3) {
@@ -136,7 +138,8 @@ void loop() {
       tFin = millis() + ms;
     }
   }
-
+  //Si hay un LED encendido y ya pasó el tiempo = APAGAR
+  //No se utiliza delay() para no congelar programa
   if (ledActivo && millis() >= tFin) {
     digitalWrite(pinLed[ledActivo], LOW);
     ledActivo = 0;
@@ -152,17 +155,17 @@ void loop() {
     lecturaNucleo = muestra;
 
     
-#if defined(CONFIG_IDF_TARGET_ESP32)
+#if defined(CONFIG_IDF_TARGET_ESP32) //Evalúa al compilar
     uint8_t respuesta[2] = {
-      (uint8_t)(muestra >> 8),
-      (uint8_t)(muestra & 0xFF)
+      (uint8_t)(muestra >> 8), //Parte alta (8 bits de arriba)
+      (uint8_t)(muestra & 0xFF) //Parte baja (8 bits de abajo)
     };
 
     Wire.slaveWrite(respuesta, 2);
 #endif
   }
 
-  // LCD a 300ms
+  // LCD a 300ms - para leer potenciómetro y actualizar
   if (millis() - ultimaActualizacion >= 300)
   {
     ultimaActualizacion = millis();
