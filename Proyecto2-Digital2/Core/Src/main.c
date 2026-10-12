@@ -38,6 +38,8 @@
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
 
+#define ESP32_I2C_ADDR (0x28U << 1)
+
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -46,6 +48,8 @@
 /* USER CODE END PM */
 
 /* Private variables ---------------------------------------------------------*/
+I2C_HandleTypeDef hi2c1;
+
 SPI_HandleTypeDef hspi1;
 
 TIM_HandleTypeDef htim6;
@@ -81,14 +85,59 @@ static void MX_GPIO_Init(void);
 static void MX_USART2_UART_Init(void);
 static void MX_SPI1_Init(void);
 static void MX_TIM6_Init(void);
+static void MX_I2C1_Init(void);
 /* USER CODE BEGIN PFP */
 bool esNumero(const char *s);
 uint8_t leerLinea(char *buf, uint8_t max);
+static void enviarTexto(const char *texto);
+static void medirPotenciometro(void);
 
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+
+// Comunicacion con el I2C
+static void enviarTexto(const char *texto){
+  HAL_UART_Transmit(&huart2, (uint8_t *)texto, (uint16_t)strlen(texto), 100);
+}
+
+static void medirPotenciometro(void){
+  uint8_t comando = 'M';
+  uint8_t respuesta[2] = {0, 0};
+  uint16_t lectura;
+  char mensaje[80];
+
+
+  /* Solicitar una nueva medicion al ESP32. */
+  if (HAL_I2C_Master_Transmit(&hi2c1, ESP32_I2C_ADDR, &comando, 1, 100) != HAL_OK){
+    enviarTexto("\r\nError: el ESP32 no recibio la solicitud I2C.\r\n");
+    return;
+  }
+
+  /* Esperar a que el ESP32 lo lea y de la respuesta  */
+  HAL_Delay(20);
+
+  if (HAL_I2C_Master_Receive(&hi2c1, ESP32_I2C_ADDR, respuesta, 2, 100) != HAL_OK)  {
+    enviarTexto("\r\nError: no se recibio la medicion I2C.\r\n");
+    return;
+  }
+
+  lectura = ((uint16_t)respuesta[0] << 8) | respuesta[1];
+
+  if (lectura > 4095U)  {
+    enviarTexto("\r\nError: medicion fuera del rango del ADC.\r\n");
+    return;
+  }
+
+  snprintf(mensaje,
+           sizeof(mensaje),
+           "\r\nPot1: %u (ADC 0-4095); valor LCD: %u (0-255)\r\n",
+           (unsigned int)lectura,
+           (unsigned int)(lectura / 16U));
+
+  enviarTexto(mensaje);
+}
 
 /* USER CODE END 0 */
 
@@ -124,8 +173,9 @@ int main(void)
   MX_USART2_UART_Init();
   MX_SPI1_Init();
   MX_TIM6_Init();
+  MX_I2C1_Init();
   /* USER CODE BEGIN 2 */
-  HAL_TIM_Base_Start_IT(&htim6);
+
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -195,6 +245,7 @@ int main(void)
 		  else if(respuesta[0]=='2'){
 			  HAL_UART_Transmit(&huart2, res2, sizeof(res2), 1000);
 			  inicio=1;
+			  medirPotenciometro();
 		  }
 
 		  //Opción inválida
@@ -261,6 +312,40 @@ void SystemClock_Config(void)
   {
     Error_Handler();
   }
+}
+
+/**
+  * @brief I2C1 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_I2C1_Init(void)
+{
+
+  /* USER CODE BEGIN I2C1_Init 0 */
+
+  /* USER CODE END I2C1_Init 0 */
+
+  /* USER CODE BEGIN I2C1_Init 1 */
+
+  /* USER CODE END I2C1_Init 1 */
+  hi2c1.Instance = I2C1;
+  hi2c1.Init.ClockSpeed = 100000;
+  hi2c1.Init.DutyCycle = I2C_DUTYCYCLE_2;
+  hi2c1.Init.OwnAddress1 = 0;
+  hi2c1.Init.AddressingMode = I2C_ADDRESSINGMODE_7BIT;
+  hi2c1.Init.DualAddressMode = I2C_DUALADDRESS_DISABLE;
+  hi2c1.Init.OwnAddress2 = 0;
+  hi2c1.Init.GeneralCallMode = I2C_GENERALCALL_DISABLE;
+  hi2c1.Init.NoStretchMode = I2C_NOSTRETCH_DISABLE;
+  if (HAL_I2C_Init(&hi2c1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN I2C1_Init 2 */
+
+  /* USER CODE END I2C1_Init 2 */
+
 }
 
 /**
